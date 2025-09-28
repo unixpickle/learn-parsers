@@ -1,8 +1,13 @@
-public struct Grammar<Terminal: Hashable, NonTerminal: Hashable> {
-  public enum Symbol {
-    case terminal(Terminal)
-    case nonTerminal(NonTerminal)
-  }
+public protocol SymbolProto: Hashable, Sendable {
+}
+
+public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto> {
+  case terminal(Terminal)
+  case nonTerminal(NonTerminal)
+}
+
+public struct Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
+  public typealias Symbol = GrammarSymbol<Terminal, NonTerminal>
 
   public struct Rule {
     public let lhs: NonTerminal
