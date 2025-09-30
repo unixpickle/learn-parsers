@@ -4,8 +4,8 @@ public protocol Parser {
 
   typealias Symbol = GrammarSymbol<Terminal, NonTerminal>
 
-  func put(terminal: Terminal) throws
-  func end() throws -> Symbol
+  mutating func put(terminal: Terminal) throws
+  mutating func end() throws -> Symbol
 }
 
 public struct ParserReadError: Error {
@@ -14,7 +14,7 @@ public struct ParserReadError: Error {
 }
 
 extension Parser {
-  public func read<T: ParserReader>(_ reader: T) async throws -> Symbol
+  mutating public func read<T: ParserReader>(_ reader: T) async throws -> Symbol
   where T.Terminal == Terminal {
     while let (token, metadata) = try await reader.readTerminal() {
       do {

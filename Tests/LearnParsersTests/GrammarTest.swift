@@ -2,6 +2,16 @@ import Testing
 
 @testable import LearnParsers
 
-@Test func example() async throws {
-  // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+@Test func testFirstTerminalsSimple() async throws {
+  let grammar = StringGrammar(
+    "S E",
+    "E T",
+    "E ( E )",
+    "T n",
+    "T + T",
+    "T T + n"
+  )
+  #expect(
+    grammar.firstTerminals() == ["S": ["n", "+", "("], "E": ["n", "+", "("], "T": ["n", "+"]]
+  )
 }
