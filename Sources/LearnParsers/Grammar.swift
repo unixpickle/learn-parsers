@@ -2,7 +2,7 @@ public protocol SymbolProto: Hashable, Sendable {}
 
 extension String: SymbolProto {}
 
-public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto> {
+public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hashable {
   case terminal(Terminal)
   case nonTerminal(NonTerminal)
 }
@@ -10,7 +10,7 @@ public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto> {
 public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
   public typealias Symbol = GrammarSymbol<Terminal, NonTerminal>
 
-  public struct Rule {
+  public struct Rule: Hashable {
     public let lhs: NonTerminal
     public let rhs: [Symbol]
 
@@ -25,9 +25,11 @@ public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
     }
   }
 
+  public let start: NonTerminal
   public let rules: [Rule]
 
-  public init(rules: [Rule]) {
+  public init(start: NonTerminal, rules: [Rule]) {
+    self.start = start
     self.rules = rules
   }
 
@@ -38,7 +40,7 @@ public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
     var converged = true
     for rule in rules {
       if case .terminal(let x) = rule.rhs.first {
-        mapping[rule.lhs, default: .init()].insert(x)
+        mapping[rule.lhs, default: []].insert(x)
         converged = false
       }
     }
@@ -53,7 +55,7 @@ public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
         }
 
         let oldCount = mapping[rule.lhs]?.count ?? 0
-        let newSet = mapping[rule.lhs, default: .init()].union(rhsStarts)
+        let newSet = mapping[rule.lhs, default: []].union(rhsStarts)
         if newSet.count > oldCount {
           mapping[rule.lhs] = newSet
           converged = false
@@ -65,7 +67,7 @@ public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
 }
 
 public class StringGrammar: Grammar<String, String> {
-  convenience public init(_ rules: String...) {
+  convenience public init(start: String, _ rules: String...) {
     let lhsAndRhs = rules.map { line in
       let parts = line.split(separator: " ")
       precondition(parts.count > 1)
@@ -73,6 +75,7 @@ public class StringGrammar: Grammar<String, String> {
     }
     let nonTerminalStrings = Set(lhsAndRhs.map { $0.0 })
     self.init(
+      start: start,
       rules: lhsAndRhs.map { rawRule in
         Rule(
           lhs: rawRule.0,
