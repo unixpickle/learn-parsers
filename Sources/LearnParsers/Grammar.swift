@@ -2,7 +2,7 @@ public protocol SymbolProto: Hashable, Sendable {}
 
 extension String: SymbolProto {}
 
-public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hashable {
+public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hashable, Sendable {
   case terminal(Terminal)
   case nonTerminal(NonTerminal)
 }
@@ -10,7 +10,7 @@ public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hash
 public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
   public typealias Symbol = GrammarSymbol<Terminal, NonTerminal>
 
-  public struct Rule: Hashable {
+  public struct Rule: Hashable, Sendable {
     public let lhs: NonTerminal
     public let rhs: [Symbol]
 

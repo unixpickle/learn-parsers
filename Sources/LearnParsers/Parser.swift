@@ -1,11 +1,17 @@
+public enum ParserMatch<Terminal: SymbolProto, NonTerminal: SymbolProto> {
+  case terminal(Terminal)
+  indirect case nonTerminal(lhs: NonTerminal, rhs: [Self])
+}
+
 public protocol Parser {
   associatedtype Terminal: SymbolProto
   associatedtype NonTerminal: SymbolProto
 
   typealias Symbol = GrammarSymbol<Terminal, NonTerminal>
+  typealias Match = ParserMatch<Terminal, NonTerminal>
 
   mutating func put(terminal: Terminal) throws
-  mutating func end() throws -> Symbol
+  mutating func end() throws -> Match
 }
 
 public struct ParserReadError: Error {
@@ -14,7 +20,7 @@ public struct ParserReadError: Error {
 }
 
 extension Parser {
-  mutating public func read<T: ParserReader>(_ reader: T) async throws -> Symbol
+  mutating public func read<T: ParserReader>(_ reader: T) async throws -> Match
   where T.Terminal == Terminal {
     while let (token, metadata) = try await reader.readTerminal() {
       do {
