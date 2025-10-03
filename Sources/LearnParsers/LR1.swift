@@ -2,13 +2,13 @@ public enum LR1Error: Error {
   case notImplemented
 }
 
-public class LR1Parser<
+public struct LR1Parser<
   Terminal: SymbolProto, NonTerminal: SymbolProto, G: Grammar<Terminal, NonTerminal>
 >: Parser {
 
   public enum GrammarError: Error {
     case reduceReduce(TerminalOrEnd, Rule, Rule)
-    case shiftReduce(Terminal, Rule, [Rule])
+    case shiftReduce(Terminal, Item, [Item])
   }
 
   public enum ParseError: Error {
@@ -20,9 +20,15 @@ public class LR1Parser<
 
   public typealias Rule = G.Rule
 
-  private struct Item: Hashable {
+  public struct Item: Hashable, Sendable, CustomStringConvertible {
     let rule: G.Rule
     let offset: Int
+
+    public var description: String {
+      let pieces = rule.rhs.map { $0.description }
+      let piecesWithDot = pieces[..<offset] + ["."] + pieces[offset...]
+      return "Rule(\(rule.lhs) -> \(piecesWithDot.joined(separator: " ")))"
+    }
 
     var next: Symbol? {
       offset < rule.rhs.count ? rule.rhs[offset] : nil
@@ -32,7 +38,6 @@ public class LR1Parser<
       lookaheadTerminals: Set<TerminalOrEnd>,
       firstTerminals: [NonTerminal: Set<Terminal>]
     ) -> Set<TerminalOrEnd> {
-      precondition(offset < rule.rhs.count, "only call nextTerminals on items with a `next`")
       if offset + 1 == rule.rhs.count {
         return lookaheadTerminals
       }
@@ -45,9 +50,16 @@ public class LR1Parser<
     }
   }
 
-  public enum TerminalOrEnd: Hashable, Sendable {
+  public enum TerminalOrEnd: Hashable, Sendable, CustomStringConvertible {
     case terminal(Terminal)
     case end
+
+    public var description: String {
+      switch self {
+      case .terminal(let t): "terminal(\(t))"
+      case .end: "end"
+      }
+    }
   }
 
   /// Maps items to valid lookahead terminals.
@@ -57,6 +69,16 @@ public class LR1Parser<
   private struct Transitions {
     public var shift: [Symbol: Int] = [:]
     public var reduce: [TerminalOrEnd: Rule] = [:]
+
+    func expectedTerminals() -> [TerminalOrEnd] {
+      shift.keys.compactMap { symbol in
+        if case .terminal(let t) = symbol {
+          .terminal(t)
+        } else {
+          nil
+        }
+      } + reduce.keys
+    }
   }
 
   private let grammar: G
@@ -68,7 +90,7 @@ public class LR1Parser<
   private var stateStack: [ItemSetID] = []
   private var stateMatches: [Match] = []
 
-  public init(grammar: G, start: NonTerminal) throws {
+  public init(grammar: G) throws {
     self.grammar = grammar
     self.firstTerminals = grammar.firstTerminals()
 
@@ -76,9 +98,9 @@ public class LR1Parser<
       ruleMap[rule.lhs, default: []].append(rule)
     }
 
-    let startItems = ruleMap[start, default: []].map { Item(rule: $0, offset: 0) }
+    let startItems = ruleMap[grammar.start, default: []].map { Item(rule: $0, offset: 0) }
     let seedItemSet: ItemSet = Dictionary(
-      uniqueKeysWithValues: startItems.map { x in (x, [TerminalOrEnd.end]) }
+      uniqueKeysWithValues: startItems.map { x in (x, [.end]) }
     )
     let startItemSet = closure(seedItemSet)
     itemSets[startItemSet] = 0
@@ -86,7 +108,7 @@ public class LR1Parser<
     // Expand item sets for each symbol after a dot.
     var itemSetsToExpand = [startItemSet]
     while let itemSet = itemSetsToExpand.popLast() {
-      transitionMap[itemSets[itemSet]!] = try expandItemSet(itemSet) { newItemSet in
+      let map = try expandItemSet(itemSet) { newItemSet in
         if let id = itemSets[newItemSet] {
           return id
         } else {
@@ -96,22 +118,27 @@ public class LR1Parser<
           return id
         }
       }
+      transitionMap[itemSets[itemSet]!] = map
+      assert(
+        !map.expectedTerminals().isEmpty,
+        "item set \(itemSet) has no terminal transitions, only \(map)"
+      )
     }
 
     stateStack.append(0)
   }
 
-  public func put(terminal: Terminal) throws {
+  public mutating func put(terminal: Terminal) throws {
     try put(.terminal(terminal))
   }
 
-  public func end() throws -> Match {
+  public mutating func end() throws -> Match {
     try put(.end)
     assert(stateMatches.count == 1)
     return stateMatches.first!
   }
 
-  private func put(_ t: TerminalOrEnd) throws {
+  private mutating func put(_ t: TerminalOrEnd) throws {
     while true {
       let state = stateStack.last!
       let map = transitionMap[state]!
@@ -130,20 +157,18 @@ public class LR1Parser<
 
         let newState = stateStack.last!
         let newMap = transitionMap[newState]!
+        if newState == 0 && stateStack.count == 1 && reduce.lhs == grammar.start {
+          stateStack.removeLast()
+          return
+        }
         guard let shift = newMap.shift[.nonTerminal(reduce.lhs)] else {
-          fatalError("matched rule but cannot shift it after popping stack")
+          fatalError("matched rule \(reduce) but cannot shift \(reduce.lhs) after popping stack")
         }
         stateStack.append(shift)
       } else {
         throw ParseError.unexpectedTerminal(
           t,
-          map.shift.keys.compactMap { symbol in
-            if case .terminal(let t) = symbol {
-              .terminal(t)
-            } else {
-              nil
-            }
-          } + map.reduce.keys
+          map.expectedTerminals()
         )
       }
     }
@@ -181,7 +206,7 @@ public class LR1Parser<
     func itemSetFor(next: Symbol) -> ItemSet {
       Dictionary(
         uniqueKeysWithValues: iset.compactMap { (item, validTerminals) in
-          if item.next != next || item.offset + 1 == item.rule.rhs.count {
+          if item.next != next {
             return nil
           }
           return (Item(rule: item.rule, offset: item.offset + 1), validTerminals)
@@ -202,9 +227,14 @@ public class LR1Parser<
           }
           if case .terminal(let terminal) = t {
             if transitions.shift[.terminal(terminal)] != nil {
-              throw GrammarError.shiftReduce(
-                terminal, item.rule, itemSetFor(next: .terminal(terminal)).keys.map { $0.rule }
-              )
+              let badItems: [Item] = iset.keys.compactMap { item in
+                if item.next != .terminal(terminal) {
+                  nil
+                } else {
+                  item
+                }
+              }
+              throw GrammarError.shiftReduce(terminal, item, badItems)
             }
           }
           transitions.reduce[t] = item.rule

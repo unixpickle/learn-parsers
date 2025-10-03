@@ -8,7 +8,7 @@ public struct TokenMetadata: Sendable, Hashable {
 public protocol ParserReader {
   associatedtype Terminal: Hashable
 
-  func readTerminal() async throws -> (Terminal, TokenMetadata)?
+  func readTerminal() async throws -> (Terminal?, TokenMetadata)
 }
 
 public class DataBytesParserReader: ParserReader {
@@ -23,13 +23,13 @@ public class DataBytesParserReader: ParserReader {
     self.bytes = data
   }
 
-  public func readTerminal() async throws -> (Terminal, TokenMetadata)? {
+  public func readTerminal() async throws -> (Terminal?, TokenMetadata) {
+    let metadata = TokenMetadata(line: line, column: column)
     if offset == bytes.count {
-      return nil
+      return (nil, metadata)
     } else {
       let result = bytes[offset]
       offset += 1
-      let metadata = TokenMetadata(line: line, column: column)
       if result == "\n".utf8.first {
         line += 1
         column = 0
@@ -38,5 +38,41 @@ public class DataBytesParserReader: ParserReader {
       }
       return (result, metadata)
     }
+  }
+}
+
+public class StringParserReader: ParserReader {
+  public typealias Terminal = String
+
+  private let text: String
+  private var offset: String.Index
+  private var line: Int = 0
+  private var column: Int = 0
+
+  public init(_ text: String) {
+    self.text = text
+    self.offset = text.startIndex
+  }
+
+  public func readTerminal() async throws -> (Terminal?, TokenMetadata) {
+    let metadata = TokenMetadata(line: line, column: column)
+
+    guard offset < text.endIndex else {
+      return (nil, metadata)
+    }
+
+    let char = text[offset]
+    let result = String(char)
+
+    offset = text.index(after: offset)
+
+    if char == "\n" {
+      line += 1
+      column = 0
+    } else {
+      column += 1
+    }
+
+    return (result, metadata)
   }
 }

@@ -2,17 +2,32 @@ public protocol SymbolProto: Hashable, Sendable {}
 
 extension String: SymbolProto {}
 
-public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hashable, Sendable {
+public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hashable, Sendable,
+  CustomStringConvertible
+{
   case terminal(Terminal)
   case nonTerminal(NonTerminal)
+
+  public var description: String {
+    switch self {
+    case .terminal(let t):
+      return "terminal(\(t))"
+    case .nonTerminal(let nt):
+      return "nonTerminal⟨\(nt)⟩"
+    }
+  }
 }
 
 public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
   public typealias Symbol = GrammarSymbol<Terminal, NonTerminal>
 
-  public struct Rule: Hashable, Sendable {
+  public struct Rule: Hashable, Sendable, CustomStringConvertible {
     public let lhs: NonTerminal
     public let rhs: [Symbol]
+
+    public var description: String {
+      "Rule(\(lhs) -> \(rhs.map{ $0.description }.joined(separator: " ")))"
+    }
 
     public init(_ lhs: NonTerminal, _ rhs: Symbol...) {
       self.lhs = lhs
@@ -67,11 +82,27 @@ public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
 }
 
 public class StringGrammar: Grammar<String, String> {
-  convenience public init(start: String, _ rules: String...) {
-    let lhsAndRhs = rules.map { line in
-      let parts = line.split(separator: " ")
-      precondition(parts.count > 1)
-      return (String(parts[0]), parts[1...].map(String.init))
+  public enum ParseError: Error {
+    case invalidNumberOfArrows
+  }
+
+  convenience public init(start: String, _ rules: String...) throws {
+    var lhsAndRhs = [(String, [String])]()
+    for line in rules {
+      let parts = line.split(separator: "->")
+      if parts.count != 2 {
+        throw ParseError.invalidNumberOfArrows
+      }
+      let lhs = String(parts[0].trimmingCharacters(in: .whitespaces))
+      let rhses = parts[1].split(separator: "|")
+      for rhs in rhses {
+        if rhs.trimmingCharacters(in: .whitespaces).isEmpty {
+          lhsAndRhs.append((lhs, []))
+        } else {
+          let rhsComponents = rhs.split(separator: " ").map(String.init)
+          lhsAndRhs.append((lhs, rhsComponents))
+        }
+      }
     }
     let nonTerminalStrings = Set(lhsAndRhs.map { $0.0 })
     self.init(

@@ -1,6 +1,15 @@
-public enum ParserMatch<Terminal: SymbolProto, NonTerminal: SymbolProto> {
+public enum ParserMatch<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hashable, Sendable,
+  CustomStringConvertible
+{
   case terminal(Terminal)
   indirect case nonTerminal(lhs: NonTerminal, rhs: [Self])
+
+  public var description: String {
+    switch self {
+    case .terminal(let t): "terminal(\(t))"
+    case .nonTerminal(let lhs, let rhs): "nonTerminal(\(lhs), \(rhs))"
+    }
+  }
 }
 
 public protocol Parser {
@@ -22,13 +31,17 @@ public struct ParserReadError: Error {
 extension Parser {
   mutating public func read<T: ParserReader>(_ reader: T) async throws -> Match
   where T.Terminal == Terminal {
-    while let (token, metadata) = try await reader.readTerminal() {
+    while true {
+      let (token, metadata) = try await reader.readTerminal()
       do {
-        try put(terminal: token)
+        if let token = token {
+          try put(terminal: token)
+        } else {
+          return try end()
+        }
       } catch {
         throw ParserReadError(metadata: metadata, error: error)
       }
     }
-    return try end()
   }
 }
