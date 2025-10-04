@@ -10,6 +10,30 @@ import Testing
     "T -> n | + T | T + n"
   )
   #expect(
-    grammar.firstTerminals() == ["S": ["n", "+", "("], "E": ["n", "+", "("], "T": ["n", "+"]]
+    grammar.firstTerminals() == [
+      "S": [.terminal("n"), .terminal("+"), .terminal("(")],
+      "E": [.terminal("n"), .terminal("+"), .terminal("(")],
+      "T": [.terminal("n"), .terminal("+")],
+    ]
+  )
+}
+
+@Test func testFirstTerminalsEmpty() async throws {
+  let grammar = try StringGrammar(
+    start: "D",
+    "S -> A B C",
+    "A -> a | ",
+    "B -> b | ",
+    "C -> c | ",
+    "D -> S d e"
+  )
+  #expect(
+    grammar.firstTerminals() == [
+      "S": [.terminal("a"), .terminal("b"), .terminal("c"), .end],
+      "A": [.terminal("a"), .end],
+      "B": [.terminal("b"), .end],
+      "C": [.terminal("c"), .end],
+      "D": [.terminal("a"), .terminal("b"), .terminal("c"), .terminal("d")],
+    ]
   )
 }

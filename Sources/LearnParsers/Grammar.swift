@@ -18,8 +18,22 @@ public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hash
   }
 }
 
+public enum GrammarTerminalOrEnd<Terminal: SymbolProto>: Hashable, Sendable, CustomStringConvertible
+{
+  case terminal(Terminal)
+  case end
+
+  public var description: String {
+    switch self {
+    case .terminal(let t): "terminal(\(t))"
+    case .end: "end"
+    }
+  }
+}
+
 public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
   public typealias Symbol = GrammarSymbol<Terminal, NonTerminal>
+  public typealias TerminalOrEnd = GrammarTerminalOrEnd<Terminal>
 
   public struct Rule: Hashable, Sendable, CustomStringConvertible {
     public let lhs: NonTerminal
@@ -49,29 +63,46 @@ public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
   }
 
   /// Find all of the passible terminals that may appear at the start of a
-  /// non-terminal.
-  public func firstTerminals() -> [NonTerminal: Set<Terminal>] {
-    var mapping = [NonTerminal: Set<Terminal>]()
+  /// non-terminal, including .end if the non-terminal can be empty.
+  public func firstTerminals() -> [NonTerminal: Set<TerminalOrEnd>] {
+    var mapping = [NonTerminal: Set<TerminalOrEnd>]()
     var converged = true
     for rule in rules {
       if case .terminal(let x) = rule.rhs.first {
-        mapping[rule.lhs, default: []].insert(x)
+        mapping[rule.lhs, default: []].insert(.terminal(x))
         converged = false
+      } else if rule.rhs.isEmpty {
+        mapping[rule.lhs, default: []].insert(.end)
       }
     }
+
     while !converged {
       converged = true
       for rule in rules {
-        guard case .nonTerminal(let x) = rule.rhs.first else {
-          continue
+        // We have to scan through the rhs of the rule since some non-terminals
+        // may be empty, in which case the first terminal might come after them.
+        var canReachEnd = true
+        var reachableTerminals = Set<TerminalOrEnd>()
+        for symbol in rule.rhs {
+          if case .nonTerminal(let x) = symbol {
+            reachableTerminals.formUnion(mapping[x, default: []].subtracting([.end]))
+            if !(mapping[x]?.contains(.end) ?? false) {
+              canReachEnd = false
+              break
+            }
+          } else if case .terminal(let x) = symbol {
+            reachableTerminals.insert(.terminal(x))
+            canReachEnd = false
+            break
+          }
         }
-        guard let rhsStarts = mapping[x] else {
-          continue
+        if canReachEnd {
+          reachableTerminals.insert(.end)
         }
 
-        let oldCount = mapping[rule.lhs]?.count ?? 0
-        let newSet = mapping[rule.lhs, default: []].union(rhsStarts)
-        if newSet.count > oldCount {
+        let oldSet = mapping[rule.lhs, default: []]
+        let newSet = oldSet.union(reachableTerminals)
+        if newSet.count > oldSet.count {
           mapping[rule.lhs] = newSet
           converged = false
         }

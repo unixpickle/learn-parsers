@@ -18,6 +18,7 @@ public struct LR1Parser<
   public typealias Terminal = Terminal
   public typealias NonTerminal = NonTerminal
 
+  public typealias TerminalOrEnd = G.TerminalOrEnd
   public typealias Rule = G.Rule
 
   public struct Item: Hashable, Sendable, CustomStringConvertible {
@@ -36,29 +37,24 @@ public struct LR1Parser<
 
     public func nextTerminals(
       lookaheadTerminals: Set<TerminalOrEnd>,
-      firstTerminals: [NonTerminal: Set<Terminal>]
+      firstTerminals: [NonTerminal: Set<TerminalOrEnd>]
     ) -> Set<TerminalOrEnd> {
-      if offset + 1 == rule.rhs.count {
-        return lookaheadTerminals
+      var possibleTerminals = Set<TerminalOrEnd>()
+      for i in (offset + 1)..<rule.rhs.count {
+        switch rule.rhs[i] {
+        case .terminal(let x):
+          possibleTerminals.insert(.terminal(x))
+          return possibleTerminals
+        case .nonTerminal(let x):
+          let ft = firstTerminals[x, default: []]
+          possibleTerminals.formUnion(ft)
+          if !ft.contains(.end) {
+            return possibleTerminals
+          }
+        }
       }
-      switch rule.rhs[offset + 1] {
-      case .terminal(let x):
-        return [.terminal(x)]
-      case .nonTerminal(let x):
-        return Set(firstTerminals[x, default: []].map { .terminal($0) })
-      }
-    }
-  }
-
-  public enum TerminalOrEnd: Hashable, Sendable, CustomStringConvertible {
-    case terminal(Terminal)
-    case end
-
-    public var description: String {
-      switch self {
-      case .terminal(let t): "terminal(\(t))"
-      case .end: "end"
-      }
+      // It's possible that we reach the end.
+      return possibleTerminals.union(lookaheadTerminals)
     }
   }
 
@@ -82,7 +78,7 @@ public struct LR1Parser<
   }
 
   private let grammar: G
-  private let firstTerminals: [NonTerminal: Set<Terminal>]
+  private let firstTerminals: [NonTerminal: Set<TerminalOrEnd>]
   private var ruleMap = [NonTerminal: [Rule]]()
   private var itemSets = [ItemSet: ItemSetID]()
   private var transitionMap = [ItemSetID: Transitions]()
