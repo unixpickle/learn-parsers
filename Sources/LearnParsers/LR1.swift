@@ -1,7 +1,3 @@
-public enum LR1Error: Error {
-  case notImplemented
-}
-
 public struct LR1Parser<
   Terminal: SymbolProto, NonTerminal: SymbolProto, G: Grammar<Terminal, NonTerminal>
 >: Parser {
@@ -35,11 +31,11 @@ public struct LR1Parser<
       offset < rule.rhs.count ? rule.rhs[offset] : nil
     }
 
-    public func nextTerminals(
-      lookaheadTerminals: Set<TerminalOrEnd>,
-      firstTerminals: [NonTerminal: Set<TerminalOrEnd>]
-    ) -> Set<TerminalOrEnd> {
-      var possibleTerminals = Set<TerminalOrEnd>()
+    internal func nextTerminals(
+      lookaheadTerminals: OrderedSet<TerminalOrEnd>,
+      firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
+    ) -> OrderedSet<TerminalOrEnd> {
+      var possibleTerminals = OrderedSet<TerminalOrEnd>()
       for i in (offset + 1)..<rule.rhs.count {
         switch rule.rhs[i] {
         case .terminal(let x):
@@ -59,7 +55,7 @@ public struct LR1Parser<
   }
 
   /// Maps items to valid lookahead terminals.
-  private typealias ItemSet = [Item: Set<TerminalOrEnd>]
+  private typealias ItemSet = OrderedDict<Item, OrderedSet<TerminalOrEnd>>
   private typealias ItemSetID = Int
 
   private struct Transitions {
@@ -78,7 +74,7 @@ public struct LR1Parser<
   }
 
   private let grammar: G
-  private let firstTerminals: [NonTerminal: Set<TerminalOrEnd>]
+  private let firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
   private var ruleMap = [NonTerminal: [Rule]]()
   private var itemSets = [ItemSet: ItemSetID]()
   private var transitionMap = [ItemSetID: Transitions]()
@@ -95,7 +91,7 @@ public struct LR1Parser<
     }
 
     let startItems = ruleMap[grammar.start, default: []].map { Item(rule: $0, offset: 0) }
-    let seedItemSet: ItemSet = Dictionary(
+    let seedItemSet: ItemSet = OrderedDict(
       uniqueKeysWithValues: startItems.map { x in (x, [.end]) }
     )
     let startItemSet = closure(seedItemSet)
@@ -200,7 +196,7 @@ public struct LR1Parser<
     var transitions = Transitions(shift: [:], reduce: [:])
 
     func itemSetFor(next: Symbol) -> ItemSet {
-      Dictionary(
+      OrderedDict(
         uniqueKeysWithValues: iset.compactMap { (item, validTerminals) in
           if item.next != next {
             return nil
@@ -210,7 +206,7 @@ public struct LR1Parser<
       )
     }
 
-    for nextSymbol in Set(iset.keys.compactMap { $0.next }) {
+    for nextSymbol in OrderedSet(iset.keys.compactMap { $0.next }) {
       let nextID = fn(closure(itemSetFor(next: nextSymbol)))
       transitions.shift[nextSymbol] = nextID
     }

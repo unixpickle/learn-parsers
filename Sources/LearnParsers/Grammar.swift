@@ -62,10 +62,10 @@ public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
     self.rules = rules
   }
 
-  /// Find all of the passible terminals that may appear at the start of a
+  /// Find all of the possible terminals that may appear at the start of a
   /// non-terminal, including .end if the non-terminal can be empty.
-  public func firstTerminals() -> [NonTerminal: Set<TerminalOrEnd>] {
-    var mapping = [NonTerminal: Set<TerminalOrEnd>]()
+  public func firstTerminals() -> [NonTerminal: OrderedSet<TerminalOrEnd>] {
+    var mapping = [NonTerminal: OrderedSet<TerminalOrEnd>]()
     var converged = true
     for rule in rules {
       if case .terminal(let x) = rule.rhs.first {
