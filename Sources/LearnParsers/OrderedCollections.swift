@@ -79,7 +79,7 @@ public struct OrderedSet<T: Hashable>: Hashable, Sequence, ExpressibleByArrayLit
   }
 }
 
-struct OrderedDict<K: Hashable, V: Hashable>: Hashable, Sequence {
+struct OrderedDict<K: Hashable, V: Hashable>: Hashable, Sequence, ExpressibleByDictionaryLiteral {
   private var d: [K: V] = [:]
   private var keyArr = [K]()
 
@@ -87,6 +87,13 @@ struct OrderedDict<K: Hashable, V: Hashable>: Hashable, Sequence {
   public var isEmpty: Bool { d.isEmpty }
   public var keys: [K] { keyArr }
   public var values: [V] { keyArr.map { d[$0]! } }
+  public var first: (K, V)? {
+    if let first = keyArr.first {
+      (first, d[first]!)
+    } else {
+      nil
+    }
+  }
 
   public func hash(into hasher: inout Hasher) {
     hasher.combine(d)
@@ -101,6 +108,12 @@ struct OrderedDict<K: Hashable, V: Hashable>: Hashable, Sequence {
 
   public init(uniqueKeysWithValues x: some Sequence<(K, V)>) {
     for (k, v) in x {
+      self[k] = v
+    }
+  }
+
+  public init(dictionaryLiteral elements: (K, V)...) {
+    for (k, v) in elements {
       self[k] = v
     }
   }
