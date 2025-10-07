@@ -46,6 +46,13 @@ import Testing
   p = parser
   let match1 = try await p.read(StringParserReader("xxyyzzxyz"))
   #expect(matchToString(match1) == "xxyyzzxyz")
+
+  // Matches should be deterministic even though they are arbitrary.
+  for _ in 0..<5 {
+    p = try GLRParser(grammar: grammar)
+    let match2 = try await p.read(StringParserReader("xxyyzzxyz"))
+    #expect(match1 == match2)
+  }
 }
 
 func matchToString(_ m: ParserMatch<String, String>) -> String {

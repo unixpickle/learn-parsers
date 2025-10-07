@@ -131,6 +131,7 @@ public struct LR1Parser<
   }
 
   private mutating func put(_ t: TerminalOrEnd) throws {
+    precondition(stateStack.count > 0)
     while true {
       let state = stateStack.last!
       let map = transitionMap[state]!

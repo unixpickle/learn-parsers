@@ -35,13 +35,6 @@ public struct GLRParser<
     }
   }
 
-  private let grammar: G
-  private let firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
-  private var ruleMap = [NonTerminal: [Rule]]()
-  private var itemSets = [ItemSet: ItemSetID]()
-  private var transitionMap = [ItemSetID: Transitions]()
-  private var firstFoundMatch: Match? = nil
-
   private class GraphNode: Hashable {
     let parentEdges: OrderedDict<GraphNode, Match>
     let state: ItemSetID
@@ -74,6 +67,33 @@ public struct GLRParser<
     }
   }
 
+  private struct GraphNodeFrontier {
+    private var stateToLeaf = OrderedDict<Int, GraphNode>()
+
+    var isEmpty: Bool { stateToLeaf.isEmpty }
+    var nodes: [GraphNode] { stateToLeaf.values }
+
+    mutating func insert(leaf: GraphNode) {
+      if let existing = stateToLeaf[leaf.state] {
+        // Note that this will dedup edges by parent, so we may erase matches,
+        // but it won't affect our ability to find _a_ valid match.
+        var newParentEdges = leaf.parentEdges
+        for (k, v) in existing.parentEdges {
+          newParentEdges[k] = v
+        }
+        stateToLeaf[leaf.state] = .init(parentEdges: newParentEdges, state: leaf.state)
+      } else {
+        stateToLeaf[leaf.state] = leaf
+      }
+    }
+  }
+
+  private let grammar: G
+  private let firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
+  private var ruleMap = [NonTerminal: [Rule]]()
+  private var itemSets = [ItemSet: ItemSetID]()
+  private var transitionMap = [ItemSetID: Transitions]()
+  private var firstFoundMatch: Match? = nil
   private var leafNodes: [GraphNode] = []
 
   public init(grammar: G) throws {
@@ -116,6 +136,7 @@ public struct GLRParser<
 
   public mutating func put(terminal: Terminal) throws {
     try put(.terminal(terminal))
+    assert(firstFoundMatch == nil)
   }
 
   public mutating func end() throws -> Match {
@@ -124,47 +145,22 @@ public struct GLRParser<
   }
 
   private mutating func put(_ t: TerminalOrEnd) throws {
-    var stateToLeaf = OrderedDict<Int, GraphNode>()
-    for leaf in leafNodes {
-      let (leaves, fullMatch) = follow(node: leaf, nextToken: t)
-      if let m = fullMatch {
-        assert(t == .end, "got full match at token \(t)")
-        firstFoundMatch = m
-        return
-      }
-      for leaf in leaves {
-        if let existing = stateToLeaf[leaf.state] {
-          // Note that this will dedup edges by parent, so we may erase matches,
-          // but it won't affect our ability to find _a_ valid match.
-          var newParentEdges = leaf.parentEdges
-          for (k, v) in existing.parentEdges {
-            newParentEdges[k] = v
-          }
-          stateToLeaf[leaf.state] = .init(parentEdges: newParentEdges, state: leaf.state)
-        } else {
-          stateToLeaf[leaf.state] = leaf
-        }
-      }
+    precondition(firstFoundMatch == nil, "already found match")
+    var completed = GraphNodeFrontier()
+    var pending = GraphNodeFrontier()
+    for item in leafNodes {
+      pending.insert(leaf: item)
     }
-    leafNodes = stateToLeaf.values
-    if leafNodes.isEmpty {
-      throw ParseError.unexpectedTerminal(t)
-    }
-  }
-
-  private func follow(node start: GraphNode, nextToken t: TerminalOrEnd) -> (
-    OrderedSet<GraphNode>, Match?
-  ) {
-    var completed = OrderedSet<GraphNode>()
-    var pending: OrderedSet<GraphNode> = [start]
     while !pending.isEmpty {
       let curPending = pending
-      pending = []
-      for node in curPending {
+      pending = GraphNodeFrontier()
+      for node in curPending.nodes {
         let map = transitionMap[node.state]!
         if case .terminal(let terminal) = t {
           for newState in map.shift[.terminal(terminal), default: []] {
-            completed.insert(GraphNode(parentEdges: [node: .terminal(terminal)], state: newState))
+            completed.insert(
+              leaf: GraphNode(parentEdges: [node: .terminal(terminal)], state: newState)
+            )
           }
         }
         for reduce in map.reduce[t, default: []] {
@@ -173,16 +169,20 @@ public struct GLRParser<
             let newMatch = Match.nonTerminal(lhs: reduce.lhs, rhs: matches)
             let nextMap = transitionMap[startNode.state]!
             if startNode.parentEdges.isEmpty && reduce.lhs == grammar.start && t == .end {
-              return ([], newMatch)
+              firstFoundMatch = newMatch
+              return
             }
             for nextState in nextMap.shift[.nonTerminal(reduce.lhs), default: []] {
-              pending.insert(.init(parentEdges: [startNode: newMatch], state: nextState))
+              pending.insert(leaf: .init(parentEdges: [startNode: newMatch], state: nextState))
             }
           }
         }
       }
     }
-    return (completed, nil)
+    leafNodes = completed.nodes
+    if leafNodes.isEmpty {
+      throw ParseError.unexpectedTerminal(t)
+    }
   }
 
   private func closure(_ iset: ItemSet) -> ItemSet {
