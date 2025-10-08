@@ -31,7 +31,7 @@ public enum GrammarTerminalOrEnd<Terminal: SymbolProto>: Hashable, Sendable, Cus
   }
 }
 
-public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
+open class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
   public typealias Symbol = GrammarSymbol<Terminal, NonTerminal>
   public typealias TerminalOrEnd = GrammarTerminalOrEnd<Terminal>
 
@@ -112,7 +112,7 @@ public class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
   }
 }
 
-public class StringGrammar: Grammar<String, String> {
+open class StringGrammar: Grammar<String, String> {
   public enum ParseError: Error {
     case invalidNumberOfArrows
   }

@@ -34,9 +34,13 @@ public struct OrderedSet<T: Hashable>: Hashable, Sequence, ExpressibleByArrayLit
     s = Set(a)
   }
 
-  public mutating func insert(_ x: T) {
+  @discardableResult
+  public mutating func insert(_ x: T) -> Bool {
     if s.insert(x).inserted {
       a.append(x)
+      return true
+    } else {
+      return false
     }
   }
 

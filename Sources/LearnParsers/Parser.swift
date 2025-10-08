@@ -10,6 +10,13 @@ public enum ParserMatch<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hashab
     case .nonTerminal(let lhs, let rhs): "nonTerminal(\(lhs), \(rhs))"
     }
   }
+
+  public var symbol: GrammarSymbol<Terminal, NonTerminal> {
+    switch self {
+    case .terminal(let t): .terminal(t)
+    case .nonTerminal(let lhs, _): .nonTerminal(lhs)
+    }
+  }
 }
 
 public protocol Parser {

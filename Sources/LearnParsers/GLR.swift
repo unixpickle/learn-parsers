@@ -35,56 +35,45 @@ public struct GLRParser<
     }
   }
 
-  private class GraphNode: Hashable {
-    let parentEdges: OrderedDict<GraphNode, Match>
-    let state: ItemSetID
-
-    func hash(into hasher: inout Hasher) {
-      hasher.combine(ObjectIdentifier(self))
+  private struct GSS {
+    struct Node: Hashable {
+      let position: Int
+      let state: ItemSetID
     }
 
-    static func == (lhs: GraphNode, rhs: GraphNode) -> Bool {
-      ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
+    var nodes = OrderedSet<Node>()
+    var parentEdges = [Node: OrderedDict<Node, Match>]()
+    var posToNode = [Int: OrderedSet<Node>]()
+
+    @discardableResult
+    mutating func insert(node: Node) -> Bool {
+      let res = nodes.insert(node)
+      posToNode[node.position, default: []].insert(node)
+      return res
     }
 
-    init(parentEdges: OrderedDict<GraphNode, Match>, state: ItemSetID) {
-      self.parentEdges = parentEdges
-      self.state = state
+    @discardableResult
+    mutating func insertEdge(parent: Node, child: Node, match: Match) -> Bool {
+      if parentEdges[child, default: [:]][parent] == nil {
+        parentEdges[child, default: [:]][parent] = match
+        return true
+      } else {
+        return false
+      }
     }
 
-    func climb(hops: Int) -> [(GraphNode, [Match])] {
-      var results: [(GraphNode, [Match])] = [(self, [])]
+    func climb(node: Node, hops: Int) -> [(Node, [Match])] {
+      var results: [(Node, [Match])] = [(node, [])]
       for _ in 0..<hops {
         let oldResults = results
         results = []
         for (oldParent, oldMatch) in oldResults {
-          for (newParent, newToken) in oldParent.parentEdges {
+          for (newParent, newToken) in parentEdges[oldParent, default: [:]] {
             results.append((newParent, [newToken] + oldMatch))
           }
         }
       }
       return results
-    }
-  }
-
-  private struct GraphNodeFrontier {
-    private var stateToLeaf = OrderedDict<Int, GraphNode>()
-
-    var isEmpty: Bool { stateToLeaf.isEmpty }
-    var nodes: [GraphNode] { stateToLeaf.values }
-
-    mutating func insert(leaf: GraphNode) {
-      if let existing = stateToLeaf[leaf.state] {
-        // Note that this will dedup edges by parent, so we may erase matches,
-        // but it won't affect our ability to find _a_ valid match.
-        var newParentEdges = leaf.parentEdges
-        for (k, v) in existing.parentEdges {
-          newParentEdges[k] = v
-        }
-        stateToLeaf[leaf.state] = .init(parentEdges: newParentEdges, state: leaf.state)
-      } else {
-        stateToLeaf[leaf.state] = leaf
-      }
     }
   }
 
@@ -94,7 +83,8 @@ public struct GLRParser<
   private var itemSets = [ItemSet: ItemSetID]()
   private var transitionMap = [ItemSetID: Transitions]()
   private var firstFoundMatch: Match? = nil
-  private var leafNodes: [GraphNode] = []
+  private var gss: GSS = GSS()
+  private var parsedOffset: Int = 0
 
   public init(grammar: G) throws {
     self.grammar = grammar
@@ -131,11 +121,12 @@ public struct GLRParser<
       )
     }
 
-    leafNodes.append(GraphNode(parentEdges: .init(), state: 0))
+    gss.insert(node: .init(position: 0, state: 0))
   }
 
   public mutating func put(terminal: Terminal) throws {
     try put(.terminal(terminal))
+    parsedOffset += 1
     assert(firstFoundMatch == nil)
   }
 
@@ -146,41 +137,42 @@ public struct GLRParser<
 
   private mutating func put(_ t: TerminalOrEnd) throws {
     precondition(firstFoundMatch == nil, "already found match")
-    var completed = GraphNodeFrontier()
-    var pending = GraphNodeFrontier()
-    for item in leafNodes {
-      pending.insert(leaf: item)
-    }
+    var pending = gss.posToNode[parsedOffset, default: []]
     while !pending.isEmpty {
       let curPending = pending
-      pending = GraphNodeFrontier()
-      for node in curPending.nodes {
+      pending = []
+      for node in curPending {
         let map = transitionMap[node.state]!
         if case .terminal(let terminal) = t {
           for newState in map.shift[.terminal(terminal), default: []] {
-            completed.insert(
-              leaf: GraphNode(parentEdges: [node: .terminal(terminal)], state: newState)
-            )
+            let newNode = GSS.Node(position: parsedOffset + 1, state: newState)
+            gss.insert(node: newNode)
+            gss.insertEdge(parent: node, child: newNode, match: .terminal(terminal))
           }
         }
         for reduce in map.reduce[t, default: []] {
           let popCount = reduce.rhs.count
-          for (startNode, matches) in node.climb(hops: popCount) {
+          for (startNode, matches) in gss.climb(node: node, hops: popCount) {
             let newMatch = Match.nonTerminal(lhs: reduce.lhs, rhs: matches)
             let nextMap = transitionMap[startNode.state]!
-            if startNode.parentEdges.isEmpty && reduce.lhs == grammar.start && t == .end {
+            if gss.parentEdges[startNode, default: [:]].isEmpty && reduce.lhs == grammar.start
+              && t == .end
+            {
               firstFoundMatch = newMatch
               return
             }
             for nextState in nextMap.shift[.nonTerminal(reduce.lhs), default: []] {
-              pending.insert(leaf: .init(parentEdges: [startNode: newMatch], state: nextState))
+              let newNode = GSS.Node(position: parsedOffset, state: nextState)
+              gss.insert(node: newNode)
+              if gss.insertEdge(parent: startNode, child: newNode, match: newMatch) {
+                pending.insert(newNode)
+              }
             }
           }
         }
       }
     }
-    leafNodes = completed.nodes
-    if leafNodes.isEmpty {
+    if gss.posToNode[parsedOffset + 1, default: []].isEmpty {
       throw ParseError.unexpectedTerminal(t)
     }
   }
