@@ -64,10 +64,15 @@ public struct OrderedSet<T: Hashable>: Hashable, Sequence, ExpressibleByArrayLit
     return result
   }
 
-  public mutating func formUnion(_ other: some Sequence<T>) {
+  @discardableResult
+  public mutating func formUnion(_ other: some Sequence<T>) -> Int {
+    var n = 0
     for x in other {
-      insert(x)
+      if insert(x) {
+        n += 1
+      }
     }
+    return n
   }
 
   public mutating func subtracting(_ other: some Sequence<T>) -> OrderedSet<T> {
@@ -82,6 +87,8 @@ public struct OrderedSet<T: Hashable>: Hashable, Sequence, ExpressibleByArrayLit
     }
   }
 }
+
+extension OrderedSet: Sendable where OrderedSet.Element: Sendable {}
 
 struct OrderedDict<K: Hashable, V: Hashable>: Hashable, Sequence, ExpressibleByDictionaryLiteral {
   private var d: [K: V] = [:]
@@ -142,3 +149,5 @@ struct OrderedDict<K: Hashable, V: Hashable>: Hashable, Sequence, ExpressibleByD
     keyArr.map { ($0, d[$0]!) }.makeIterator()
   }
 }
+
+extension OrderedDict: Sendable where OrderedDict.Key: Sendable, OrderedDict.Value: Sendable {}

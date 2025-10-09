@@ -1,7 +1,6 @@
 public struct LR1Parser<
   Terminal: SymbolProto, NonTerminal: SymbolProto, G: Grammar<Terminal, NonTerminal>
 >: Parser {
-
   public enum GrammarError: Error {
     case reduceReduce(TerminalOrEnd, Rule, Rule)
     case shiftReduce(Terminal, Item, [Item])
@@ -11,14 +10,35 @@ public struct LR1Parser<
     case unexpectedTerminal(TerminalOrEnd, [TerminalOrEnd])
   }
 
+  public typealias G = G
   public typealias Terminal = Terminal
   public typealias NonTerminal = NonTerminal
 
   public typealias TerminalOrEnd = G.TerminalOrEnd
   public typealias Rule = G.Rule
 
+  public final class RulePointer: Hashable, Sendable, CustomStringConvertible {
+    public let rule: G.Rule
+
+    public var lhs: NonTerminal { rule.lhs }
+    public var rhs: [Symbol] { rule.rhs }
+    public var description: String { rule.description }
+
+    public init(rule: G.Rule) {
+      self.rule = rule
+    }
+
+    public func hash(into hasher: inout Hasher) {
+      hasher.combine(ObjectIdentifier(self))
+    }
+
+    public static func == (lhs: RulePointer, rhs: RulePointer) -> Bool {
+      ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
+    }
+  }
+
   public struct Item: Hashable, Sendable, CustomStringConvertible {
-    let rule: G.Rule
+    let rule: RulePointer
     let offset: Int
 
     public var description: String {
@@ -55,12 +75,12 @@ public struct LR1Parser<
   }
 
   /// Maps items to valid lookahead terminals.
-  private typealias ItemSet = OrderedDict<Item, OrderedSet<TerminalOrEnd>>
+  internal typealias ItemSet = OrderedDict<Item, OrderedSet<TerminalOrEnd>>
   private typealias ItemSetID = Int
 
   private struct Transitions {
     public var shift: [Symbol: Int] = [:]
-    public var reduce: [TerminalOrEnd: Rule] = [:]
+    public var reduce: [TerminalOrEnd: RulePointer] = [:]
 
     func expectedTerminals() -> [TerminalOrEnd] {
       shift.keys.compactMap { symbol in
@@ -75,7 +95,7 @@ public struct LR1Parser<
 
   private let grammar: G
   private let firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
-  private var ruleMap = [NonTerminal: [Rule]]()
+  private var ruleMap = [NonTerminal: [RulePointer]]()
   private var itemSets = [ItemSet: ItemSetID]()
   private var transitionMap = [ItemSetID: Transitions]()
 
@@ -86,7 +106,9 @@ public struct LR1Parser<
     self.grammar = grammar
     self.firstTerminals = grammar.firstTerminals()
 
-    for rule in grammar.rules {
+    let rules = OrderedSet(grammar.rules).map { RulePointer(rule: $0) }
+
+    for rule in rules {
       ruleMap[rule.lhs, default: []].append(rule)
     }
 
@@ -168,23 +190,38 @@ public struct LR1Parser<
   }
 
   private func closure(_ iset: ItemSet) -> ItemSet {
+    Self.closure(iset, ruleMap: ruleMap, firstTerminals: firstTerminals)
+  }
+
+  internal static func closure(
+    _ iset: ItemSet,
+    ruleMap: [NonTerminal: [RulePointer]],
+    firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
+  ) -> ItemSet {
     var result = iset
-    var converged = false
-    while !converged {
-      converged = true
-      for (sourceItem, lookaheadTerminals) in result {
-        if case .nonTerminal(let x) = sourceItem.next {
-          let nextTerminals = sourceItem.nextTerminals(
-            lookaheadTerminals: lookaheadTerminals,
-            firstTerminals: firstTerminals
-          )
-          for expandRule in ruleMap[x, default: []] {
-            let addedItem = Item(rule: expandRule, offset: 0)
-            let oldSet = result[addedItem]
-            let newSet = (oldSet ?? []).union(nextTerminals)
-            if newSet.count > (oldSet?.count ?? 0) {
-              result[addedItem] = newSet
-              converged = false
+    var checkItems = OrderedSet<Item>(iset.keys)
+    while !checkItems.isEmpty {
+      let ci = checkItems
+      checkItems = .init()
+      for sourceItem in ci {
+        guard case .nonTerminal(let x) = sourceItem.next else {
+          continue
+        }
+        let lookaheadTerminals = result[sourceItem]!
+        let nextTerminals = sourceItem.nextTerminals(
+          lookaheadTerminals: lookaheadTerminals,
+          firstTerminals: firstTerminals
+        )
+        assert(lookaheadTerminals.count > 0)
+        for expandRule in ruleMap[x, default: []] {
+          let addedItem = Item(rule: expandRule, offset: 0)
+          if result[addedItem] == nil {
+            result[addedItem] = nextTerminals
+            checkItems.insert(addedItem)
+          } else {
+            let numInserted = result[addedItem]!.formUnion(nextTerminals)
+            if numInserted != 0 {
+              checkItems.insert(addedItem)
             }
           }
         }
@@ -216,7 +253,7 @@ public struct LR1Parser<
       if item.next == nil {
         for t in terminals {
           if let existing = transitions.reduce[t] {
-            throw GrammarError.reduceReduce(t, existing, item.rule)
+            throw GrammarError.reduceReduce(t, existing.rule, item.rule.rule)
           }
           if case .terminal(let terminal) = t {
             if transitions.shift[.terminal(terminal)] != nil {
@@ -238,3 +275,5 @@ public struct LR1Parser<
     return transitions
   }
 }
+
+extension LR1Parser: Sendable where LR1Parser.G: Sendable {}

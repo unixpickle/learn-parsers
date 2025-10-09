@@ -6,6 +6,7 @@ public struct GLRParser<
     case unexpectedTerminal(TerminalOrEnd)
   }
 
+  public typealias G = G
   public typealias Terminal = Terminal
   public typealias NonTerminal = NonTerminal
 
@@ -13,6 +14,7 @@ public struct GLRParser<
   public typealias Rule = G.Rule
 
   public typealias Item = LR1Parser<Terminal, NonTerminal, G>.Item
+  public typealias RulePointer = LR1Parser<Terminal, NonTerminal, G>.RulePointer
 
   /// Maps items to valid lookahead terminals.
   private typealias ItemSet = OrderedDict<Item, OrderedSet<TerminalOrEnd>>
@@ -20,7 +22,7 @@ public struct GLRParser<
 
   private struct Transitions {
     var shift: [Symbol: OrderedSet<Int>] = [:]
-    var reduce: [TerminalOrEnd: OrderedSet<Rule>] = [:]
+    var reduce: [TerminalOrEnd: OrderedSet<RulePointer>] = [:]
 
     func expectedTerminals() -> OrderedSet<TerminalOrEnd> {
       OrderedSet(
@@ -79,7 +81,7 @@ public struct GLRParser<
 
   private let grammar: G
   private let firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
-  private var ruleMap = [NonTerminal: [Rule]]()
+  private var ruleMap = [NonTerminal: [RulePointer]]()
   private var itemSets = [ItemSet: ItemSetID]()
   private var transitionMap = [ItemSetID: Transitions]()
   private var firstFoundMatch: Match? = nil
@@ -90,7 +92,9 @@ public struct GLRParser<
     self.grammar = grammar
     self.firstTerminals = grammar.firstTerminals()
 
-    for rule in grammar.rules {
+    let rules = OrderedSet(grammar.rules).map { RulePointer(rule: $0) }
+
+    for rule in rules {
       ruleMap[rule.lhs, default: []].append(rule)
     }
 
@@ -178,29 +182,7 @@ public struct GLRParser<
   }
 
   private func closure(_ iset: ItemSet) -> ItemSet {
-    var result = iset
-    var converged = false
-    while !converged {
-      converged = true
-      for (sourceItem, lookaheadTerminals) in result {
-        if case .nonTerminal(let x) = sourceItem.next {
-          let nextTerminals = sourceItem.nextTerminals(
-            lookaheadTerminals: lookaheadTerminals,
-            firstTerminals: firstTerminals
-          )
-          for expandRule in ruleMap[x, default: []] {
-            let addedItem = Item(rule: expandRule, offset: 0)
-            let oldSet = result[addedItem]
-            let newSet = (oldSet ?? []).union(nextTerminals)
-            if newSet.count > (oldSet?.count ?? 0) {
-              result[addedItem] = newSet
-              converged = false
-            }
-          }
-        }
-      }
-    }
-    return result
+    LR1Parser.closure(iset, ruleMap: ruleMap, firstTerminals: firstTerminals)
   }
 
   private func expandItemSet(_ iset: ItemSet, _ fn: (ItemSet) -> ItemSetID) throws -> Transitions {
@@ -233,3 +215,5 @@ public struct GLRParser<
     return transitions
   }
 }
+
+extension GLRParser: Sendable where GLRParser.G: Sendable {}
