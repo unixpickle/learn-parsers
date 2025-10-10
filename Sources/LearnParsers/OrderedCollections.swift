@@ -142,7 +142,9 @@ struct OrderedDict<K: Hashable, V: Hashable>: Hashable, Sequence, ExpressibleByD
   }
 
   public subscript(_ k: K, default de: V) -> V {
-    d[k, default: de]
+    get {
+      d[k, default: de]
+    }
   }
 
   public func makeIterator() -> IndexingIterator<[(K, V)]> {

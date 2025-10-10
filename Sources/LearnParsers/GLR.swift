@@ -17,7 +17,7 @@ public struct GLRParser<
   public typealias RulePointer = LR1Parser<Terminal, NonTerminal, G>.RulePointer
 
   /// Maps items to valid lookahead terminals.
-  private typealias ItemSet = OrderedDict<Item, OrderedSet<TerminalOrEnd>>
+  private typealias ItemSet = OrderedDict<Item, BitSet>
   private typealias ItemSetID = Int
 
   private struct Transitions {
@@ -80,7 +80,8 @@ public struct GLRParser<
   }
 
   private let grammar: G
-  private let firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
+  private let bitSetConverter: BitSetConverter<TerminalOrEnd>
+  private let firstTerminals: [NonTerminal: BitSet]
   private var ruleMap = [NonTerminal: [RulePointer]]()
   private var itemSets = [ItemSet: ItemSetID]()
   private var transitionMap = [ItemSetID: Transitions]()
@@ -89,8 +90,10 @@ public struct GLRParser<
   private var parsedOffset: Int = 0
 
   public init(grammar: G) throws {
+    let bsc = grammar.terminalBitSetConverter()
     self.grammar = grammar
-    self.firstTerminals = grammar.firstTerminals()
+    self.bitSetConverter = bsc
+    self.firstTerminals = grammar.firstTerminals().mapValues(bsc.toBits)
 
     let rules = OrderedSet(grammar.rules).map { RulePointer(rule: $0) }
 
@@ -100,7 +103,7 @@ public struct GLRParser<
 
     let startItems = ruleMap[grammar.start, default: []].map { Item(rule: $0, offset: 0) }
     let seedItemSet = ItemSet(
-      uniqueKeysWithValues: startItems.map { x in (x, [.end]) }
+      uniqueKeysWithValues: startItems.map { x in (x, bitSetConverter.toBits([.end])) }
     )
     let startItemSet = closure(seedItemSet)
     itemSets[startItemSet] = 0
@@ -182,7 +185,12 @@ public struct GLRParser<
   }
 
   private func closure(_ iset: ItemSet) -> ItemSet {
-    LR1Parser.closure(iset, ruleMap: ruleMap, firstTerminals: firstTerminals)
+    LR1Parser.closure(
+      iset,
+      ruleMap: ruleMap,
+      firstTerminals: firstTerminals,
+      bitSetConverter: bitSetConverter
+    )
   }
 
   private func expandItemSet(_ iset: ItemSet, _ fn: (ItemSet) -> ItemSetID) throws -> Transitions {
@@ -206,7 +214,7 @@ public struct GLRParser<
 
     for (item, terminals) in iset {
       if item.next == nil {
-        for t in terminals {
+        for t in bitSetConverter.fromBits(terminals) {
           transitions.reduce[t, default: []].insert(item.rule)
         }
       }

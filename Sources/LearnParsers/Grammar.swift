@@ -110,6 +110,21 @@ open class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
     }
     return mapping
   }
+
+  public func terminalBitSetConverter() -> BitSetConverter<TerminalOrEnd> {
+    var allTerminals = [TerminalOrEnd.end]
+    var allTerminalSet = Set<Terminal>()
+    for rule in rules {
+      for item in rule.rhs {
+        if case .terminal(let t) = item {
+          if allTerminalSet.insert(t).inserted {
+            allTerminals.append(.terminal(t))
+          }
+        }
+      }
+    }
+    return BitSetConverter(values: allTerminals)
+  }
 }
 
 open class StringGrammar: Grammar<String, String> {

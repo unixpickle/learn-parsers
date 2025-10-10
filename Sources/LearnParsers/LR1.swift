@@ -52,19 +52,20 @@ public struct LR1Parser<
     }
 
     internal func nextTerminals(
-      lookaheadTerminals: OrderedSet<TerminalOrEnd>,
-      firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
-    ) -> OrderedSet<TerminalOrEnd> {
-      var possibleTerminals = OrderedSet<TerminalOrEnd>()
+      lookaheadTerminals: BitSet,
+      firstTerminals: [NonTerminal: BitSet],
+      bitSetConverter: BitSetConverter<TerminalOrEnd>
+    ) -> BitSet {
+      var possibleTerminals = bitSetConverter.empty()
       for i in (offset + 1)..<rule.rhs.count {
         switch rule.rhs[i] {
         case .terminal(let x):
-          possibleTerminals.insert(.terminal(x))
+          possibleTerminals[bitSetConverter.toID(.terminal(x))] = true
           return possibleTerminals
         case .nonTerminal(let x):
-          let ft = firstTerminals[x, default: []]
+          let ft = firstTerminals[x, default: bitSetConverter.empty()]
           possibleTerminals.formUnion(ft)
-          if !ft.contains(.end) {
+          if !ft[bitSetConverter.toID(.end)] {
             return possibleTerminals
           }
         }
@@ -75,7 +76,7 @@ public struct LR1Parser<
   }
 
   /// Maps items to valid lookahead terminals.
-  internal typealias ItemSet = OrderedDict<Item, OrderedSet<TerminalOrEnd>>
+  internal typealias ItemSet = OrderedDict<Item, BitSet>
   private typealias ItemSetID = Int
 
   private struct Transitions {
@@ -94,7 +95,8 @@ public struct LR1Parser<
   }
 
   private let grammar: G
-  private let firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
+  private let bitSetConverter: BitSetConverter<TerminalOrEnd>
+  private let firstTerminals: [NonTerminal: BitSet]
   private var ruleMap = [NonTerminal: [RulePointer]]()
   private var itemSets = [ItemSet: ItemSetID]()
   private var transitionMap = [ItemSetID: Transitions]()
@@ -103,8 +105,10 @@ public struct LR1Parser<
   private var stateMatches: [Match] = []
 
   public init(grammar: G) throws {
+    let bsc = grammar.terminalBitSetConverter()
     self.grammar = grammar
-    self.firstTerminals = grammar.firstTerminals()
+    self.bitSetConverter = bsc
+    self.firstTerminals = grammar.firstTerminals().mapValues(bsc.toBits)
 
     let rules = OrderedSet(grammar.rules).map { RulePointer(rule: $0) }
 
@@ -114,7 +118,7 @@ public struct LR1Parser<
 
     let startItems = ruleMap[grammar.start, default: []].map { Item(rule: $0, offset: 0) }
     let seedItemSet: ItemSet = OrderedDict(
-      uniqueKeysWithValues: startItems.map { x in (x, [.end]) }
+      uniqueKeysWithValues: startItems.map { x in (x, bitSetConverter.toBits([.end])) }
     )
     let startItemSet = closure(seedItemSet)
     itemSets[startItemSet] = 0
@@ -190,13 +194,18 @@ public struct LR1Parser<
   }
 
   private func closure(_ iset: ItemSet) -> ItemSet {
-    Self.closure(iset, ruleMap: ruleMap, firstTerminals: firstTerminals)
+    Self.closure(
+      iset, ruleMap: ruleMap,
+      firstTerminals: firstTerminals,
+      bitSetConverter: bitSetConverter
+    )
   }
 
   internal static func closure(
     _ iset: ItemSet,
     ruleMap: [NonTerminal: [RulePointer]],
-    firstTerminals: [NonTerminal: OrderedSet<TerminalOrEnd>]
+    firstTerminals: [NonTerminal: BitSet],
+    bitSetConverter: BitSetConverter<TerminalOrEnd>
   ) -> ItemSet {
     var result = iset
     var checkItems = OrderedSet<Item>(iset.keys)
@@ -210,18 +219,31 @@ public struct LR1Parser<
         let lookaheadTerminals = result[sourceItem]!
         let nextTerminals = sourceItem.nextTerminals(
           lookaheadTerminals: lookaheadTerminals,
-          firstTerminals: firstTerminals
+          firstTerminals: firstTerminals,
+          bitSetConverter: bitSetConverter
         )
         assert(lookaheadTerminals.count > 0)
         for expandRule in ruleMap[x, default: []] {
           let addedItem = Item(rule: expandRule, offset: 0)
+          let hasNonTerminal = if case .nonTerminal = addedItem.next {
+            true
+          } else {
+            false
+          }
           if result[addedItem] == nil {
             result[addedItem] = nextTerminals
-            checkItems.insert(addedItem)
-          } else {
-            let numInserted = result[addedItem]!.formUnion(nextTerminals)
-            if numInserted != 0 {
+            if hasNonTerminal {
               checkItems.insert(addedItem)
+            }
+          } else {
+            let oldResult = result[addedItem]!
+            var newResult = oldResult
+            newResult.formUnion(nextTerminals)
+            if newResult != oldResult {
+              result[addedItem] = newResult
+              if hasNonTerminal {
+                checkItems.insert(addedItem)
+              }
             }
           }
         }
@@ -233,25 +255,29 @@ public struct LR1Parser<
   private func expandItemSet(_ iset: ItemSet, _ fn: (ItemSet) -> ItemSetID) throws -> Transitions {
     var transitions = Transitions(shift: [:], reduce: [:])
 
-    func itemSetFor(next: Symbol) -> ItemSet {
-      OrderedDict(
-        uniqueKeysWithValues: iset.compactMap { (item, validTerminals) in
-          if item.next != next {
-            return nil
-          }
-          return (Item(rule: item.rule, offset: item.offset + 1), validTerminals)
-        }
-      )
+    var nextSymbols = Set<Symbol>()
+    var nextSymbolsOrdered = [Symbol]()
+    var nextItemSets = [Symbol: ItemSet]()
+    for (item, validTerminals) in iset {
+      guard let next = item.next else {
+        continue
+      }
+      let newItem = Item(rule: item.rule, offset: item.offset + 1)
+      if nextSymbols.insert(next).inserted {
+        nextSymbolsOrdered.append(next)
+      }
+      nextItemSets[next, default: .init()][newItem] = validTerminals
     }
 
-    for nextSymbol in OrderedSet(iset.keys.compactMap { $0.next }) {
-      let nextID = fn(closure(itemSetFor(next: nextSymbol)))
+    for nextSymbol in nextSymbolsOrdered {
+      let newItemSet = nextItemSets[nextSymbol]!
+      let nextID = fn(closure(newItemSet))
       transitions.shift[nextSymbol] = nextID
     }
 
     for (item, terminals) in iset {
       if item.next == nil {
-        for t in terminals {
+        for t in bitSetConverter.fromBits(terminals) {
           if let existing = transitions.reduce[t] {
             throw GrammarError.reduceReduce(t, existing.rule, item.rule.rule)
           }
