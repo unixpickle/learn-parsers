@@ -208,43 +208,42 @@ public struct LR1Parser<
     bitSetConverter: BitSetConverter<TerminalOrEnd>
   ) -> ItemSet {
     var result = iset
-    var checkItems = OrderedSet<Item>(iset.keys)
-    while !checkItems.isEmpty {
-      let ci = checkItems
-      checkItems = .init()
-      for sourceItem in ci {
-        guard case .nonTerminal(let x) = sourceItem.next else {
-          continue
+    var expandStack = Array(iset.keys)
+    var expandSet = Set(expandStack)
+    while let sourceItem = expandStack.popLast() {
+      expandSet.remove(sourceItem)
+      guard case .nonTerminal(let x) = sourceItem.next else {
+        continue
+      }
+      let lookaheadTerminals = result[sourceItem]!
+      let nextTerminals = sourceItem.nextTerminals(
+        lookaheadTerminals: lookaheadTerminals,
+        firstTerminals: firstTerminals,
+        bitSetConverter: bitSetConverter
+      )
+      assert(lookaheadTerminals.count > 0)
+      for expandRule in ruleMap[x, default: []] {
+        let addedItem = Item(rule: expandRule, offset: 0)
+        let hasNonTerminal = if case .nonTerminal = addedItem.next {
+          true
+        } else {
+          false
         }
-        let lookaheadTerminals = result[sourceItem]!
-        let nextTerminals = sourceItem.nextTerminals(
-          lookaheadTerminals: lookaheadTerminals,
-          firstTerminals: firstTerminals,
-          bitSetConverter: bitSetConverter
-        )
-        assert(lookaheadTerminals.count > 0)
-        for expandRule in ruleMap[x, default: []] {
-          let addedItem = Item(rule: expandRule, offset: 0)
-          let hasNonTerminal = if case .nonTerminal = addedItem.next {
-            true
-          } else {
-            false
+        var modified = false
+        if let oldResult = result[addedItem] {
+          var newResult = oldResult
+          newResult.formUnion(nextTerminals)
+          if newResult != oldResult {
+            result[addedItem] = newResult
+            modified = true
           }
-          if result[addedItem] == nil {
-            result[addedItem] = nextTerminals
-            if hasNonTerminal {
-              checkItems.insert(addedItem)
-            }
-          } else {
-            let oldResult = result[addedItem]!
-            var newResult = oldResult
-            newResult.formUnion(nextTerminals)
-            if newResult != oldResult {
-              result[addedItem] = newResult
-              if hasNonTerminal {
-                checkItems.insert(addedItem)
-              }
-            }
+        } else {
+          result[addedItem] = nextTerminals
+          modified = true
+        }
+        if modified {
+          if hasNonTerminal && expandSet.insert(addedItem).inserted {
+            expandStack.append(addedItem)
           }
         }
       }

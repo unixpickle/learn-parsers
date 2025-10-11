@@ -31,8 +31,8 @@ public protocol Parser {
 }
 
 public struct ParserReadError: Error {
-  let metadata: TokenMetadata
-  let error: Error
+  public let metadata: TokenMetadata
+  public let error: Error
 
   public init(metadata: TokenMetadata, error: Error) {
     self.metadata = metadata
