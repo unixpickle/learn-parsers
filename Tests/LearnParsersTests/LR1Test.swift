@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import LearnParsers
@@ -15,7 +16,8 @@ import Testing
   }
 }
 
-@Test func testLR1FixedWikipediaGrammar() async throws {
+@Test(arguments: [false, true])
+func testLR1FixedWikipediaGrammar(_ codable: Bool) async throws {
   // Example grammar from wikipedia with the tail factored out of T.
   let grammar = try StringGrammar(
     start: "S",
@@ -27,6 +29,9 @@ import Testing
   let parser = try LR1Parser(grammar: grammar)
 
   var parser1 = parser
+  if codable {
+    parser1 = try roundTripCodable(parser1)
+  }
   var matches = try await parser1.read(StringParserReader("(n+n)"))
   var expected: ParserMatch = .nonTerminal(
     lhs: "S",
@@ -56,6 +61,9 @@ import Testing
   #expect(matches == expected)
 
   parser1 = parser
+  if codable {
+    parser1 = try roundTripCodable(parser1)
+  }
   matches = try await parser1.read(StringParserReader("n+n+n"))
   expected = .nonTerminal(
     lhs: "S",
@@ -91,22 +99,37 @@ import Testing
 
   await #expect(throws: ParserReadError.self) {
     var parser1 = parser
+    if codable {
+      parser1 = try roundTripCodable(parser1)
+    }
     let _ = try await parser1.read(StringParserReader("(n+)"))
   }
   await #expect(throws: ParserReadError.self) {
     var parser1 = parser
+    if codable {
+      parser1 = try roundTripCodable(parser1)
+    }
     let _ = try await parser1.read(StringParserReader("(n+n"))
   }
   await #expect(throws: ParserReadError.self) {
     var parser1 = parser
+    if codable {
+      parser1 = try roundTripCodable(parser1)
+    }
     let _ = try await parser1.read(StringParserReader("(n+n+)"))
   }
   await #expect(throws: ParserReadError.self) {
     var parser1 = parser
+    if codable {
+      parser1 = try roundTripCodable(parser1)
+    }
     let _ = try await parser1.read(StringParserReader("+(n+n)"))
   }
   await #expect(throws: ParserReadError.self) {
     var parser1 = parser
+    if codable {
+      parser1 = try roundTripCodable(parser1)
+    }
     let _ = try await parser1.read(StringParserReader("((n+n)))"))
   }
 }
@@ -228,4 +251,9 @@ import Testing
     )
     #expect(matches == expected)
   }()
+}
+
+func roundTripCodable<T: Codable>(_ x: T) throws -> T {
+  let data = try JSONEncoder().encode(x)
+  return try JSONDecoder().decode(T.self, from: data)
 }

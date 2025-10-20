@@ -5,6 +5,9 @@ extension String: SymbolProto {}
 public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hashable, Sendable,
   CustomStringConvertible
 {
+  typealias Terminal = Terminal
+  typealias NonTerminal = NonTerminal
+
   case terminal(Terminal)
   case nonTerminal(NonTerminal)
 
@@ -18,8 +21,13 @@ public enum GrammarSymbol<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hash
   }
 }
 
+extension GrammarSymbol: Codable
+where GrammarSymbol.Terminal: Codable, GrammarSymbol.NonTerminal: Codable {}
+
 public enum GrammarTerminalOrEnd<Terminal: SymbolProto>: Hashable, Sendable, CustomStringConvertible
 {
+  typealias Terminal = Terminal
+
   case terminal(Terminal)
   case end
 
@@ -31,7 +39,11 @@ public enum GrammarTerminalOrEnd<Terminal: SymbolProto>: Hashable, Sendable, Cus
   }
 }
 
+extension GrammarTerminalOrEnd: Codable where GrammarTerminalOrEnd.Terminal: Codable {}
+
 open class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
+  public typealias Terminal = Terminal
+  public typealias NonTerminal = NonTerminal
   public typealias Symbol = GrammarSymbol<Terminal, NonTerminal>
   public typealias TerminalOrEnd = GrammarTerminalOrEnd<Terminal>
 
@@ -127,7 +139,9 @@ open class Grammar<Terminal: SymbolProto, NonTerminal: SymbolProto> {
   }
 }
 
-open class StringGrammar: Grammar<String, String> {
+extension Grammar.Rule: Codable where Grammar.Terminal: Codable, Grammar.NonTerminal: Codable {}
+
+final class StringGrammar: Grammar<String, String> {
   public enum ParseError: Error {
     case invalidNumberOfArrows
   }

@@ -1,4 +1,4 @@
-public struct BitSet: Hashable, Sendable {
+public struct BitSet: Hashable, Sendable, Codable {
   var cells: [UInt64]
 
   var count: Int {
@@ -50,6 +50,8 @@ public struct BitSet: Hashable, Sendable {
 }
 
 public struct BitSetConverter<T: Hashable>: Sendable where T: Sendable {
+  typealias T = T
+
   public let valueToID: [T: Int]
   public let idToValue: [Int: T]
 
@@ -84,3 +86,5 @@ public struct BitSetConverter<T: Hashable>: Sendable where T: Sendable {
     valueToID[x]!
   }
 }
+
+extension BitSetConverter: Codable where BitSetConverter.T: Codable {}

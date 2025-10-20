@@ -89,6 +89,7 @@ public struct OrderedSet<T: Hashable>: Hashable, Sequence, ExpressibleByArrayLit
 }
 
 extension OrderedSet: Sendable where OrderedSet.Element: Sendable {}
+extension OrderedSet: Codable where OrderedSet.Element: Codable {}
 
 struct OrderedDict<K: Hashable, V: Hashable>: Hashable, Sequence, ExpressibleByDictionaryLiteral {
   private var d: [K: V] = [:]
@@ -153,3 +154,4 @@ struct OrderedDict<K: Hashable, V: Hashable>: Hashable, Sequence, ExpressibleByD
 }
 
 extension OrderedDict: Sendable where OrderedDict.Key: Sendable, OrderedDict.Value: Sendable {}
+extension OrderedDict: Codable where OrderedDict.Key: Codable, OrderedDict.Value: Codable {}

@@ -79,7 +79,7 @@ public struct LR1Parser<
   internal typealias ItemSet = OrderedDict<Item, BitSet>
   private typealias ItemSetID = Int
 
-  private struct Transitions {
+  struct Transitions {
     public var shift: [Symbol: Int] = [:]
     public var reduce: [TerminalOrEnd: RulePointer] = [:]
 
@@ -94,11 +94,10 @@ public struct LR1Parser<
     }
   }
 
-  private let grammar: G
+  private let start: NonTerminal
   private let bitSetConverter: BitSetConverter<TerminalOrEnd>
-  private let firstTerminals: [NonTerminal: BitSet]
+  private var firstTerminals: [NonTerminal: BitSet]
   private var ruleMap = [NonTerminal: [RulePointer]]()
-  private var itemSets = [ItemSet: ItemSetID]()
   private var transitionMap = [ItemSetID: Transitions]()
 
   private var stateStack: [ItemSetID] = []
@@ -106,7 +105,7 @@ public struct LR1Parser<
 
   public init(grammar: G) throws {
     let bsc = grammar.terminalBitSetConverter()
-    self.grammar = grammar
+    self.start = grammar.start
     self.bitSetConverter = bsc
     self.firstTerminals = grammar.firstTerminals().mapValues(bsc.toBits)
 
@@ -121,6 +120,8 @@ public struct LR1Parser<
       uniqueKeysWithValues: startItems.map { x in (x, bitSetConverter.toBits([.end])) }
     )
     let startItemSet = closure(seedItemSet)
+
+    var itemSets = [ItemSet: ItemSetID]()
     itemSets[startItemSet] = 0
 
     // Expand item sets for each symbol after a dot.
@@ -144,6 +145,11 @@ public struct LR1Parser<
     }
 
     stateStack.append(0)
+
+    // Post init, all of this state is unused, so we empty it
+    // for a smaller memory/serialization footprint.
+    ruleMap = .init()
+    firstTerminals = .init()
   }
 
   public mutating func put(terminal: Terminal) throws {
@@ -176,7 +182,7 @@ public struct LR1Parser<
 
         let newState = stateStack.last!
         let newMap = transitionMap[newState]!
-        if newState == 0 && stateStack.count == 1 && reduce.lhs == grammar.start {
+        if newState == 0 && stateStack.count == 1 && reduce.lhs == start {
           stateStack.removeLast()
           return
         }
@@ -224,11 +230,12 @@ public struct LR1Parser<
       assert(lookaheadTerminals.count > 0)
       for expandRule in ruleMap[x, default: []] {
         let addedItem = Item(rule: expandRule, offset: 0)
-        let hasNonTerminal = if case .nonTerminal = addedItem.next {
-          true
-        } else {
-          false
-        }
+        let hasNonTerminal =
+          if case .nonTerminal = addedItem.next {
+            true
+          } else {
+            false
+          }
         var modified = false
         if let oldResult = result[addedItem] {
           var newResult = oldResult
@@ -301,4 +308,10 @@ public struct LR1Parser<
   }
 }
 
-extension LR1Parser: Sendable where LR1Parser.G: Sendable {}
+extension LR1Parser: Sendable where LR1Parser.NonTerminal: Sendable, LR1Parser.Terminal: Sendable {}
+
+extension LR1Parser.RulePointer: Codable where LR1Parser.G.Rule: Codable {}
+extension LR1Parser.Item: Codable where LR1Parser.RulePointer: Codable {}
+extension LR1Parser.Transitions: Codable where LR1Parser.RulePointer: Codable {}
+extension LR1Parser: Codable where LR1Parser.Terminal: Codable, LR1Parser.NonTerminal: Codable {
+}
