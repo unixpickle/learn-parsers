@@ -1,6 +1,9 @@
 public enum ParserMatch<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hashable, Sendable,
   CustomStringConvertible
 {
+  typealias Terminal = Terminal
+  typealias NonTerminal = NonTerminal
+
   case terminal(Terminal)
   indirect case nonTerminal(lhs: NonTerminal, rhs: [Self])
 
@@ -18,6 +21,9 @@ public enum ParserMatch<Terminal: SymbolProto, NonTerminal: SymbolProto>: Hashab
     }
   }
 }
+
+extension ParserMatch: Codable
+where ParserMatch.NonTerminal: Codable, ParserMatch.Terminal: Codable {}
 
 public protocol Parser {
   associatedtype Terminal: SymbolProto
